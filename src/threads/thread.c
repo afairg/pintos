@@ -37,6 +37,8 @@ static struct thread *initial_thread;
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
+static struct list sleep_list;
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -70,6 +72,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static bool compare_sleep_tick(const struct list_elem *first, const struct list_elem *last, void *aux UNUSED);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -91,6 +94,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&sleep_list);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -123,6 +127,8 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
+  struct thread *sleep_thread;
+  struct list_elem *elem;
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -137,6 +143,19 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
+
+  if (!list_empty(&sleep_list)) {
+    sleep_thread = list_entry(list_begin(&sleep_list), struct thread, sleep_elem);
+    sleep_thread->wakeup_ticks--;
+    for (elem = list_begin(&sleep_list); elem != list_end(&sleep_list); ) {
+      sleep_thread = list_entry(elem, struct thread, sleep_elem);
+      if (sleep_thread->wakeup_ticks > 0) {
+        break;
+      }
+      elem = list_remove(elem);
+      thread_unblock(sleep_thread);
+    }
+  }
 }
 
 /* Prints thread statistics. */
@@ -218,6 +237,23 @@ thread_block (void)
 
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
+}
+
+/* This function puts ta thread to sleep, and will
+   wake it up after the specified amount of clock ticks */
+void
+thread_sleep (int64_t ticks)
+{
+  struct thread *current = thread_current();
+
+  ASSERT(!intr_context());
+  ASSERT(intr_get_level() == INTR_OFF);
+
+  if (ticks > 0) {
+    current->wakeup_ticks = ticks;
+    list_insert_ordered(&sleep_list, &current->sleep_elem, compare_sleep_tick, NULL);
+    thread_block();
+  }
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -335,7 +371,7 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  return;
 }
 
 /* Returns the current thread's priority. */
@@ -406,7 +442,7 @@ idle (void *idle_started_ UNUSED)
          important; otherwise, an interrupt could be handled
          between re-enabling interrupts and waiting for the next
          one to occur, wasting as much as one clock tick worth of
-         time.
+         time.+++++++++++
 
          See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
          7.11.1 "HLT Instruction". */
@@ -577,6 +613,22 @@ allocate_tid (void)
   lock_release (&tid_lock);
 
   return tid;
+}
+
+static bool
+compare_sleep_tick(const struct list_elem *first, const struct list_elem *last, void *aux UNUSED) {
+  struct thread *thread_to_sleep;
+  struct thread *sleep_thread;
+  thread_to_sleep = list_entry(first, struct thread, sleep_elem);
+  sleep_thread = list_entry(last, struct thread, sleep_elem);
+  if (thread_to_sleep->wakeup_ticks < sleep_thread->wakeup_ticks) {
+    sleep_thread->wakeup_ticks = sleep_thread->wakeup_ticks - thread_to_sleep->wakeup_ticks;
+    return true;
+  }
+  else {
+    thread_to_sleep->wakeup_ticks = thread_to_sleep->wakeup_ticks - sleep_thread->wakeup_ticks;
+    return false;
+  }
 }
 
 /* Offset of `stack' member within `struct thread'.
