@@ -1,0 +1,123 @@
+			+--------------------+
+			|        CS 4100     |
+			| PROJECT 1: THREADS |
+			|   DESIGN DOCUMENT  |
+			+--------------------+
+				   
+---- GROUP HIDA ----
+
+>> Fill in the names and email addresses of your group members.
+
+Avery Richardson <arichards44@tntech.edu>
+Hao Ho <hhho42@tntech.edu>
+Izaiah Townsend <witownsend42@tntech.edu>
+Daniel Attih <dattih42@tntech.edu>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+			ChatGPT, GeeksForGeeks
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+			     ALARM CLOCK
+			     ===========
+
+---- DATA STRUCTURES ----
+
+>> A1: static struct list sleep_list; - This is a queue for sleeping threads to be put into or woken up from
+       int64_t wakeup_ticks; - Represents the ticks until thread is supposed to be woken up
+       void thread_sleep(int64_t ticks); - puts a thread to sleep by inserting it into the sleep queue, and will wake it up after the specified amount of ticks
+       static bool compare_sleep_tick(const struct list_elem *first, list_elem *last, void *aux UNUSED); - compares the current thread's sleep ticks to
+            the thread at the front of the queue, and contains the logic that decides when to wake the thread up
+
+---- ALGORITHMS ----
+
+>> A2: timer_sleep makes sure interrupts are off in order to handle thread management - then, calls thread_sleep function to add the current thread to the sleep list
+       and block it. The timer interrupt checks the list and unblocks threads whose wakeup_tick has passed.
+
+>> A3: The list of sleeping threads is kept ordered by their tick until wakeup, which allows the timer interrupt to only check the front of the list for threads that
+       need to be woken up, which minimizes the time spent in the interrupt handler.
+
+---- SYNCHRONIZATION ----
+
+>> A4: Interrupts are disabled during a thread insertion into the sleeping threads queue. This prevents race conditions during multiple accesses at the same time.
+
+>> A5: Interrupts are disabled during critical sections of timer_sleep, so the interrupt handler cannot preempt the insertion of a thread into the sleeping thread list.
+
+---- RATIONALE ----
+
+>> A6: This design keeps the timer interrupt handler efficient by using an ordered list. A previous design we considered was similar to this, but the list was not ordered,
+       so it was much more difficult to keep up with thread ticks and which threads needed to be woken up.
+
+			 PRIORITY SCHEDULING
+			 ===================
+
+Synch.c 
+
+1.  Semaphores 
+
+Semaphores are counters that control access to shared resources and synchronize threads. 
+
+Key Functions: 
+
+sema_init(struct semaphore *sema, unsigned value): Initializes a semaphore. 
+
+sema_down(struct semaphore *sema): Waits until sema->value becomes positive and then decrements it. 
+
+sema_try_down(struct semaphore *sema): Tries to decrement without blocking; returns true if successful. 
+
+sema_up(struct semaphore *sema): Increments sema->value and wakes up the highest-priority waiting thread. 
+
+sema_get_highest_priority_waiting_thread(struct semaphore *sema): Retrieves the highest-priority thread waiting. 
+
+Helper: 
+
+thread_priority_compare(): Compares two threads based on priority. 
+
+Testing: 
+
+sema_self_test(): Verifies semaphore functionality via thread ping-pong. 
+
+2. Locks 
+
+A lock is a specialized semaphore ensuring that only one thread can access a resource at a time. 
+
+Key Functions: 
+
+lock_init(struct lock *lock): Initializes a lock. 
+
+lock_acquire(struct lock *lock): Acquires the lock; includes priority donation if needed. 
+
+lock_try_acquire(struct lock *lock): Tries to acquire the lock without blocking. 
+
+lock_release(struct lock *lock): Releases the lock and wakes up the highest-priority waiter. 
+
+lock_get_holder(struct lock *lock): Returns the thread currently holding the lock. 
+
+lock_get_highest_priority_waiting_thread(struct lock *lock): Returns the highest-priority waiting thread. 
+
+lock_held_by_current_thread(const struct lock *lock): Verifies if the current thread holds the lock. 
+
+Concepts: 
+
+Locks implement priority donation to handle priority inversion. 
+
+3. Condition Variables 
+
+Purpose: 
+
+Condition variables allow threads to wait for certain conditions while temporarily releasing locks. 
+
+Key Functions: 
+
+cond_init(struct condition *cond): Initializes a condition variable. 
+
+cond_wait(struct condition *cond, struct lock *lock): Atomically releases the lock and waits. 
+
+cond_signal(struct condition *cond, struct lock *lock): Wakes up the highest-priority thread waiting. 
+
+cond_broadcast(struct condition *cond, struct lock *lock): Wakes up all threads waiting. 
